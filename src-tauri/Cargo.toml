@@ -7,7 +7,6 @@ license = ""
 repository = ""
 default-run = "app"
 edition = "2021"
-rust-version = "1.60"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -17,10 +16,37 @@ tauri-build = { version = "1.5.3", features = [] }
 [dependencies]
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
-tauri = { version = "1.7.0", features = [] }
+tauri = { version = "1.7.0", features = ["api-all"] }
+futures = "0.3.30"
+video-rs = { version = "0.8.1", features = ["ndarray"] }
+ffmpeg-next = { version = "7.0.4", features = ["static"] }
+anyhow = "1.0.86"
+tryvial = "0.2.0"
+fn-error-context = "0.2.1"
+whisper-rs = { git = "https://github.com/thewh1teagle/whisper-rs", branch = "feat/vulkan", features = [
+    "vulkan",
+] }
+hound = "3.5.1"
+itertools = "0.13.0"
+num_cpus = "1.16.0"
+ndarray = "0.15.6"
+delta_e = "0.2.1"
+rayon = "1.7.0"
+image = "0.24.4"
+tempfile = "3.6.0"
+blake3 = { version = "1.5.4", features = ["rayon"] }
 
 [features]
 # this feature is used for production builds or when `devPath` points to the filesystem and the built-in dev server is disabled.
 # If you use cargo directly instead of tauri's cli you can use this feature flag to switch between tauri's `dev` and `build` modes.
 # DO NOT REMOVE!!
-custom-protocol = [ "tauri/custom-protocol" ]
+custom-protocol = ["tauri/custom-protocol"]
+
+[build]
+rustflags = ["-C", "target-cpu=native"]
+
+[target.x86_64-apple-darwin]
+rustflags = ["-C", "target-feature=-avx,-avx2"]
+
+[profile.dev.package."*"]
+opt-level = 3
