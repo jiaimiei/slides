@@ -39,6 +39,8 @@
 
 	let video: HTMLVideoElement
 
+	let videoSrc = ""
+
 	onMount(async () => {
 		const unlisten1 = await listen<
 			| { type: "transcoding"; data: "started" | "done" }
@@ -54,6 +56,7 @@
 		const unlisten2 = await listen<string>("complete", async (evt) => {
 			dataPath = evt.payload
 			data = JSON.parse(await readTextFile(await join(evt.payload, "regions.json")))
+			videoSrc = URL.createObjectURL(await (await fetch(convertFileSrc(session.videoPath))).blob())
 		})
 
 		unlisten.run = () => {
@@ -169,7 +172,7 @@
 				<!-- svelte-ignore a11y-media-has-caption -->
 				<div class="flex gap-4 h-[50vh]">
 					<video
-						src={convertFileSrc(session.videoPath)}
+						src={videoSrc}
 						controls
 						bind:this={video}
 						on:timeupdate={() => {
