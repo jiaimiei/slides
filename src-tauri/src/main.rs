@@ -10,7 +10,8 @@ use std::{
 	sync::{
 		mpsc::{channel, Receiver, Sender},
 		Arc, LazyLock, Mutex
-	}
+	},
+	time::Instant
 };
 
 use anyhow::{Context, Result};
@@ -42,10 +43,16 @@ fn main() {
 			let app = app.handle();
 
 			async_runtime::spawn(async move {
+				let mut first_time = None;
+
 				while let Ok(progress) = rx.recv() {
 					app.emit_all(
 						"progress",
-						Progress::Transcribing(ExtendedProgress::Progress((progress as f32 / 100.0).clamp(0.0, 1.0)))
+						Progress::Transcribing(ExtendedProgress::Progress(
+							(progress as f32 / 100.0).clamp(0.0, 1.0),
+							(Instant::now() - *first_time.get_or_insert(Instant::now())).as_secs_f32()
+								/ progress as f32 * (100 - progress) as f32
+						))
 					)
 					.unwrap();
 				}
@@ -104,7 +111,7 @@ pub enum BasicProgress {
 #[serde(rename_all = "camelCase")]
 pub enum ExtendedProgress {
 	Preparing,
-	Progress(f32),
+	Progress(f32, f32),
 	Done
 }
 
@@ -119,7 +126,8 @@ pub struct Region {
 	pub segments: Vec<Segment>,
 	pub words: Vec<Segment>,
 	pub start: f32,
-	pub end: f32
+	pub end: f32,
+	pub summary: String
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
@@ -164,7 +172,7 @@ fn process_regions(app: &AppHandle, video_path: &Path) -> Result<()> {
 
 				app.emit_all("progress", Progress::Transcribing(ExtendedProgress::Preparing))?;
 
-				let (segments, words) = transcribe(temp.path().join("audio.wav"), move |progress| {
+				let (mut segments, mut words) = transcribe(temp.path().join("audio.wav"), move |progress| {
 					WHISPER_PROGRESS_SENDER
 						.lock()
 						.unwrap()
@@ -196,6 +204,8 @@ fn process_regions(app: &AppHandle, video_path: &Path) -> Result<()> {
 
 				let total_secs = video.duration()?.as_secs();
 
+				let start_time = Instant::now();
+
 				'l: while let Ok((time, frame)) = {
 					if skipping > 0 {
 						skipping -= 1;
@@ -207,7 +217,11 @@ fn process_regions(app: &AppHandle, video_path: &Path) -> Result<()> {
 				} {
 					app.emit_all(
 						"progress",
-						Progress::Processing(ExtendedProgress::Progress(time.as_secs() / total_secs))
+						Progress::Processing(ExtendedProgress::Progress(
+							time.as_secs() / total_secs,
+							(Instant::now() - start_time).as_secs_f32() / time.as_secs()
+								* (total_secs - time.as_secs())
+						))
 					)?;
 
 					if let Some(last_frame) = last_frame {
@@ -244,6 +258,8 @@ fn process_regions(app: &AppHandle, video_path: &Path) -> Result<()> {
 					last_frame = Some(frame);
 				}
 
+				splits.push(total_secs);
+
 				app.emit_all("progress", Progress::Processing(ExtendedProgress::Done))?;
 
 				app.emit_all("progress", Progress::GatheringPreviews(ExtendedProgress::Preparing))?;
@@ -261,6 +277,8 @@ fn process_regions(app: &AppHandle, video_path: &Path) -> Result<()> {
 
 				let frames_to_decode = *middle_frames.last().unwrap_or(&0) as f32;
 
+				let start_time = Instant::now();
+
 				let mut frame = 0;
 				for (idx, middle_frame) in middle_frames.into_iter().enumerate() {
 					while frame != middle_frame {
@@ -269,7 +287,11 @@ fn process_regions(app: &AppHandle, video_path: &Path) -> Result<()> {
 
 						app.emit_all(
 							"progress",
-							Progress::GatheringPreviews(ExtendedProgress::Progress(frame as f32 / frames_to_decode))
+							Progress::GatheringPreviews(ExtendedProgress::Progress(
+								frame as f32 / frames_to_decode,
+								(Instant::now() - start_time).as_secs_f32() / frame as f32
+									* (frames_to_decode - frame as f32)
+							))
 						)?;
 					}
 
@@ -303,7 +325,7 @@ fn process_regions(app: &AppHandle, video_path: &Path) -> Result<()> {
 	let mut split_segments = vec![];
 
 	for (split_start, split_end) in splits.iter().tuple_windows() {
-		let included_segments = segments
+		let mut included_segments = segments
 			.iter()
 			.filter(|(_, start, end)| {
 				((*start as f32 / 100.0) >= *split_start && (*start as f32 / 100.0) <= *split_end)
@@ -316,7 +338,7 @@ fn process_regions(app: &AppHandle, video_path: &Path) -> Result<()> {
 			})
 			.collect_vec();
 
-		let included_words = words
+		let mut included_words = words
 			.iter()
 			.filter(|(_, start, end)| {
 				((*start as f32 / 100.0) >= *split_start && (*start as f32 / 100.0) <= *split_end)
@@ -328,10 +350,37 @@ fn process_regions(app: &AppHandle, video_path: &Path) -> Result<()> {
 				end: *end as f32 / 100.0
 			})
 			.collect_vec();
+
+		// Remove [BLANK_AUDIO] tokens
+
+		if included_segments
+			.last()
+			.map(|Segment { text, .. }| text)
+			.unwrap_or(&String::new())
+			.trim()
+			.starts_with('[')
+		{
+			included_segments.pop();
+		}
+
+		if included_words
+			.last()
+			.map(|Segment { text, .. }| text)
+			.unwrap_or(&String::new())
+			.trim()
+			.starts_with('[')
+		{
+			included_words.pop();
+		}
 
 		split_segments.push(Region {
 			start: *split_start,
 			end: *split_end,
+			summary: included_segments
+				.iter()
+				.map(|Segment { text, .. }| text.to_owned())
+				.collect::<Vec<_>>()
+				.join(""),
 			segments: included_segments,
 			words: included_words
 		});

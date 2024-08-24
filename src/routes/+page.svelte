@@ -7,7 +7,7 @@
 </script>
 
 <main class="w-screen h-screen bg-muted/40 p-16 xl:p-64">
-	<h1 class="text-9xl font-extrabold tracking-tight">Slides</h1>
+	<h1 class="text-9xl font-extrabold tracking-tight mb-4">Slides</h1>
 	<Button
 		on:click={async () => {
 			const videoPath = await open({
