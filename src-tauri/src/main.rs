@@ -5,7 +5,8 @@ mod transcode;
 mod whisper;
 
 use std::{
-	fs,
+	collections::HashMap,
+	fs::{self, File},
 	path::{Path, PathBuf},
 	sync::{
 		mpsc::{channel, Receiver, Sender},
@@ -20,21 +21,31 @@ use fn_error_context::context;
 use image::{ImageBuffer, Rgb};
 use itertools::Itertools;
 use ndarray::Axis;
+use rand::{thread_rng, Rng};
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use serde::{Deserialize, Serialize};
 use serde_json::to_string;
-use tauri::{async_runtime, AppHandle, Manager};
+use tauri::{
+	async_runtime::{self, JoinHandle},
+	AppHandle, Manager
+};
 use tempfile::tempdir;
 use transcode::transcode;
 use tryvial::try_fn;
 use video_rs::Frame;
+use warp::Filter;
 use whisper::transcribe;
 
 static WHISPER_PROGRESS_SENDER: Mutex<Option<Sender<i32>>> = Mutex::new(None);
 
+static SERVER_SECRET: LazyLock<String> =
+	LazyLock::new(|| thread_rng().gen::<[u64; 4]>().map(|x| x.to_string()).join("-"));
+
+static SERVER_HANDLE: Mutex<Option<JoinHandle<()>>> = Mutex::new(None);
+
 fn main() {
 	tauri::Builder::default()
-		.invoke_handler(tauri::generate_handler![rs_process_regions])
+		.invoke_handler(tauri::generate_handler![rs_process_regions, save_current_time])
 		.setup(|app| {
 			let (tx, rx) = channel();
 
@@ -62,6 +73,11 @@ fn main() {
 		})
 		.run(tauri::generate_context!())
 		.expect("error while running tauri application");
+}
+
+#[tauri::command]
+fn save_current_time(data_path: PathBuf, time: f64) -> Result<(), String> {
+	fs::write(data_path.join("current_time.txt"), time.to_string()).map_err(|x| format!("{x:?}"))
 }
 
 // Proportion of same pixels between two frames
@@ -157,7 +173,19 @@ fn process_regions(app: &AppHandle, video_path: &Path) -> Result<()> {
 
 	// We've already processed this video
 	if output_path.join("regions.json").exists() {
-		app.emit_all("complete", output_path)?;
+		drop(SERVER_HANDLE.lock().unwrap().take().inspect(|x| x.abort()));
+
+		SERVER_HANDLE.lock().unwrap().replace(async_runtime::spawn({
+			warp::serve(
+				warp::path(SERVER_SECRET.to_string())
+					.and(warp::path::end())
+					.and(warp::fs::file(video_path.to_owned()))
+			)
+			.run(([127, 0, 0, 1], 52937))
+		}));
+
+		app.emit_all("complete", (SERVER_SECRET.to_owned(), output_path))?;
+
 		return Ok(());
 	}
 
@@ -172,7 +200,7 @@ fn process_regions(app: &AppHandle, video_path: &Path) -> Result<()> {
 
 				app.emit_all("progress", Progress::Transcribing(ExtendedProgress::Preparing))?;
 
-				let (mut segments, mut words) = transcribe(temp.path().join("audio.wav"), move |progress| {
+				let (segments, words) = transcribe(temp.path().join("audio.wav"), move |progress| {
 					WHISPER_PROGRESS_SENDER
 						.lock()
 						.unwrap()
@@ -197,6 +225,8 @@ fn process_regions(app: &AppHandle, video_path: &Path) -> Result<()> {
 				let (width, height) = video.size();
 
 				let mut splits = vec![];
+
+				let mut naive_splits = vec![];
 
 				let mut last_frame: Option<Frame> = None;
 
@@ -245,14 +275,17 @@ fn process_regions(app: &AppHandle, video_path: &Path) -> Result<()> {
 						);
 
 						if sim < 0.99 {
-							if time.as_secs() - splits.last().unwrap() > 1.0 {
+							if time.as_secs() - naive_splits.last().unwrap() > 2.0 {
 								splits.push(time.as_secs());
 							}
+
+							naive_splits.push(time.as_secs());
 						} else {
 							skipping = 15;
 						}
 					} else {
 						splits.push(time.as_secs());
+						naive_splits.push(time.as_secs());
 					}
 
 					last_frame = Some(frame);
@@ -390,5 +423,16 @@ fn process_regions(app: &AppHandle, video_path: &Path) -> Result<()> {
 
 	app.emit_all("progress", Progress::Finalising(BasicProgress::Done))?;
 
-	app.emit_all("complete", output_path)?;
+	drop(SERVER_HANDLE.lock().unwrap().take().inspect(|x| x.abort()));
+
+	SERVER_HANDLE.lock().unwrap().replace(async_runtime::spawn({
+		warp::serve(
+			warp::path(SERVER_SECRET.to_string())
+				.and(warp::path::end())
+				.and(warp::fs::file(video_path.to_owned()))
+		)
+		.run(([127, 0, 0, 1], 52937))
+	}));
+
+	app.emit_all("complete", (SERVER_SECRET.to_owned(), output_path))?;
 }

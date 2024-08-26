@@ -4,10 +4,11 @@
 	import { listen } from "@tauri-apps/api/event"
 	import { session } from "$lib/session"
 	import { Progress } from "$lib/components/ui/progress"
-	import { readTextFile } from "@tauri-apps/api/fs"
+	import { readTextFile, exists } from "@tauri-apps/api/fs"
 	import { join } from "@tauri-apps/api/path"
 	import { Badge } from "$lib/components/ui/badge"
 	import scrollIntoView from "scroll-into-view-if-needed"
+	import { platform } from "@tauri-apps/api/os"
 
 	const unlisten = { run: () => {} }
 
@@ -25,6 +26,7 @@
 		finalising: null
 	}
 
+	let serverSecret = ""
 	let dataPath = ""
 
 	let data: {
@@ -39,8 +41,6 @@
 
 	let video: HTMLVideoElement
 
-	let videoSrc = ""
-
 	onMount(async () => {
 		const unlisten1 = await listen<
 			| { type: "transcoding"; data: "started" | "done" }
@@ -54,9 +54,8 @@
 		})
 
 		const unlisten2 = await listen<string>("complete", async (evt) => {
-			dataPath = evt.payload
-			data = JSON.parse(await readTextFile(await join(evt.payload, "regions.json")))
-			videoSrc = URL.createObjectURL(await (await fetch(convertFileSrc(session.videoPath))).blob())
+			;[serverSecret, dataPath] = evt.payload
+			data = JSON.parse(await readTextFile(await join(dataPath, "regions.json")))
 		})
 
 		unlisten.run = () => {
@@ -171,16 +170,29 @@
 				<h1 class="text-4xl font-extrabold tracking-tight mb-4">Video</h1>
 				<!-- svelte-ignore a11y-media-has-caption -->
 				<div class="flex gap-4 h-[50vh]">
-					<video
-						src={videoSrc}
-						controls
-						bind:this={video}
-						on:timeupdate={() => {
-							currentTime = video.currentTime
-						}}
-						class="outline-none"
-					/>
-					<div class="text-base h-full overflow-y-auto">
+					{#await platform() then platform}
+						<video
+							src={platform === "win32" ? convertFileSrc(session.videoPath) : `http://localhost:52937/${serverSecret}`}
+							controls
+							bind:this={video}
+							on:timeupdate={() => {
+								currentTime = video.currentTime
+							}}
+							on:loadedmetadata={async () => {
+								if (await exists(await join(dataPath, "current_time.txt"))) {
+									video.currentTime = Number(await readTextFile(await join(dataPath, "current_time.txt")))
+								} else {
+									video.currentTime = data[0].segments[0].start
+								}
+
+								setInterval(async () => {
+									await invoke("save_current_time", { dataPath, time: video.currentTime })
+								}, 2000)
+							}}
+							class="outline-none"
+						/>
+					{/await}
+					<div class="text-base h-full overflow-y-auto pr-2">
 						{#if true}
 							{@const dedupSegments = data
 								.flatMap((a) => a.segments)
