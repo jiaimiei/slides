@@ -18,14 +18,14 @@
 		transcribing: { type: "preparing" } | { type: "progress"; data: [number, number] } | { type: "done" } | null
 		processing: { type: "preparing" } | { type: "progress"; data: [number, number] } | { type: "done" } | null
 		gatheringPreviews: { type: "preparing" } | { type: "progress"; data: [number, number] } | { type: "done" } | null
-		finalising: "started" | "done" | null
+		summarising: "started" | "done" | null
 	} = {
 		downloading: null,
 		transcoding: null,
 		transcribing: null,
 		processing: null,
 		gatheringPreviews: null,
-		finalising: null
+		summarising: null
 	}
 
 	let serverSecret = ""
@@ -33,7 +33,7 @@
 
 	let data: {
 		segments: { text: string; start: number; end: number }[]
-		words: { text: string; start: number; end: number }[]
+		words: { text: string; start: number; end: number }[] | null
 		start: number
 		end: number
 		summary: string
@@ -49,7 +49,7 @@
 			| { type: "transcribing"; data: { type: "preparing" } | { type: "progress"; data: [number, number] } | { type: "done" } }
 			| { type: "processing"; data: { type: "preparing" } | { type: "progress"; data: [number, number] } | { type: "done" } }
 			| { type: "gatheringPreviews"; data: { type: "preparing" } | { type: "progress"; data: [number, number] } | { type: "done" } }
-			| { type: "finalising"; data: "started" | "done" }
+			| { type: "summarising"; data: "started" | "done" }
 		>("progress", (evt) => {
 			// @ts-expect-error
 			progress[evt.payload.type] = evt.payload.data
@@ -79,43 +79,51 @@
 	}
 
 	$: if (data) {
-		let elem = document.getElementById(`segment-${secondsToTime(data.flatMap((a) => a.segments).find((a) => currentTime >= a.start && currentTime < a.end)?.start || 0)}`)
+		const currentSegmentTime = data.flatMap((a) => a.segments).find((a) => currentTime >= a.start && currentTime < a.end)?.start
 
-		if (elem) {
-			scrollIntoView(elem, { scrollMode: "if-needed" })
+		if (currentSegmentTime) {
+			let elem = document.getElementById(`segment-${secondsToTime(currentSegmentTime)}`)
+
+			if (elem) {
+				scrollIntoView(elem, { scrollMode: "if-needed" })
+			}
 		}
 	}
 
 	// Split a list of segments into their tokens.
 	function splitSegments(
 		segments: { text: string; start: number; end: number }[],
-		tokens: { text: string; start: number; end: number }[]
+		tokens: ({ text: string; start: number; end: number } | null)[]
 	): [{ text: string; start: number; end: number }, { text: string; start: number; end: number }[]][] {
-		tokens = tokens.slice(
-			tokens.findIndex((token) => segments[0].text.startsWith(token.text)),
-			tokens.findLastIndex((token) => segments.at(-1)?.text.endsWith(token.text)) + 1
-		)
+		if (tokens.length && tokens.every((a) => a)) {
+			const ts: { text: string; start: number; end: number }[] = tokens.slice(
+				tokens.findIndex((token) => segments[0].text.startsWith(token!.text)),
+				tokens.findLastIndex((token) => segments.at(-1)?.text.endsWith(token!.text)) + 1
+			) as any
 
-		let curToken = 0
+			let curToken = 0
 
-		let splitSegments: [{ text: string; start: number; end: number }, { text: string; start: number; end: number }[]][] = []
+			let splitSegments: [{ text: string; start: number; end: number }, { text: string; start: number; end: number }[]][] = []
 
-		for (const segment of segments) {
-			let i = 0
+			for (const segment of segments) {
+				let i = 0
 
-			let split = []
+				let split = []
 
-			while (i < segment.text.length) {
-				i += tokens[curToken].text.length
-				split.push(tokens[curToken])
+				while (i < segment.text.length) {
+					i += ts[curToken].text.length
+					split.push(ts[curToken])
 
-				curToken += 1
+					curToken += 1
+				}
+
+				splitSegments.push([segment, split])
 			}
 
-			splitSegments.push([segment, split])
+			return splitSegments
+		} else {
+			return segments.map((a) => [a, []])
 		}
-
-		return splitSegments
 	}
 </script>
 
@@ -199,30 +207,47 @@
 							{@const dedupSegments = data
 								.flatMap((a) => a.segments)
 								.filter((i, idx, arr) => arr[idx - 1]?.text !== i.text || arr[idx - 1]?.start !== i.start || arr[idx - 1]?.end !== i.end)}
-							{@const dedupWords = data.flatMap((a) => a.words).filter((i, idx, arr) => arr[idx - 1]?.text !== i.text || arr[idx - 1]?.start !== i.start || arr[idx - 1]?.end !== i.end)}
+							{@const dedupWords = data
+								.flatMap((a) => a.words)
+								.filter((i, idx, arr) => arr[idx - 1]?.text !== i?.text || arr[idx - 1]?.start !== i?.start || arr[idx - 1]?.end !== i?.end)}
 							{@const splitSegs = splitSegments(dedupSegments, dedupWords)}
 							{#each splitSegs as [segment, tokens]}
-								<div
-									id="segment-{secondsToTime(segment.start)}"
-									class="p-2 grid grid-cols-5 2xl:grid-cols-11 gap-2 hover:bg-muted-foreground/15 cursor-pointer {currentTime >= segment.start && currentTime < segment.end
-										? 'bg-muted-foreground/10'
-										: ''}"
-									on:click={() => {
-										video.currentTime = segment.start
-									}}
-								>
-									<Badge variant="secondary" class="justify-center">{secondsToTime(segment.start)}</Badge>
-									<div class="col-span-4 2xl:col-span-10">
-										{#each tokens as token}
-											<span
-												class="cursor-pointer"
-												on:click|stopPropagation={() => {
-													video.currentTime = token.start
-												}}>{token.text}</span
-											>
-										{/each}
+								{#if tokens.length}
+									<div
+										id="segment-{secondsToTime(segment.start)}"
+										class="p-2 grid grid-cols-5 2xl:grid-cols-11 gap-2 hover:bg-muted-foreground/15 cursor-pointer {currentTime >= segment.start && currentTime < segment.end
+											? 'bg-muted-foreground/10'
+											: ''}"
+										on:click={() => {
+											video.currentTime = segment.start
+										}}
+									>
+										<Badge variant="secondary" class="justify-center">{secondsToTime(segment.start)}</Badge>
+										<div class="col-span-4 2xl:col-span-10">
+											{#each tokens as token}
+												<span
+													class="cursor-pointer"
+													on:click|stopPropagation={() => {
+														video.currentTime = token.start
+													}}>{token.text}</span
+												>
+											{/each}
+										</div>
 									</div>
-								</div>
+								{:else}
+									<div
+										id="segment-{secondsToTime(segment.start)}"
+										class="p-2 grid grid-cols-5 2xl:grid-cols-11 gap-2 hover:bg-muted-foreground/15 cursor-pointer {currentTime >= segment.start && currentTime < segment.end
+											? 'bg-muted-foreground/10'
+											: ''}"
+										on:click={() => {
+											video.currentTime = segment.start
+										}}
+									>
+										<Badge variant="secondary" class="justify-center">{secondsToTime(segment.start)}</Badge>
+										<div class="col-span-4 2xl:col-span-10">{segment.text}</div>
+									</div>
+								{/if}
 							{/each}
 						{/if}
 					</div>
@@ -323,11 +348,11 @@
 					</div>
 				</div>
 			{/if}
-			{#if progress.finalising}
+			{#if progress.summarising}
 				<div class="grid grid-cols-3 gap-4 items-center">
-					<span class="font-bold">Finalising</span>
+					<span class="font-bold">Summarising</span>
 					<div class="col-span-2">
-						{progress.finalising === "started" ? "In progress" : "Done!"}
+						{progress.summarising === "started" ? "In progress" : "Done!"}
 					</div>
 				</div>
 			{/if}

@@ -45,6 +45,12 @@ static SERVER_HANDLE: Mutex<Option<JoinHandle<()>>> = Mutex::new(None);
 
 static MODEL_URL: &str = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.en.bin?download=true";
 
+static PROMPT_TEMPLATE: &str = r"The following is an excerpt from a lecture transcript:
+
+##text##
+
+Reformat this excerpt in paragraphed, readable form. Correct any spelling or grammar issues. Give only the reformatted text in your response.";
+
 fn main() {
 	tauri::Builder::default()
 		.invoke_handler(tauri::generate_handler![rs_process_regions, save_current_time])
@@ -115,7 +121,7 @@ pub enum Progress {
 	Transcribing(ExtendedProgress),
 	Processing(ExtendedProgress),
 	GatheringPreviews(ExtendedProgress),
-	Finalising(BasicProgress)
+	Summarising(BasicProgress)
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug)]
@@ -210,8 +216,6 @@ fn process_regions(app: &AppHandle, video_path: &Path) -> Result<()> {
 				};
 
 				if json_path.exists() {
-					app.emit_all("progress", Progress::Transcoding(BasicProgress::Done))?;
-
 					app.emit_all("progress", Progress::Transcribing(ExtendedProgress::Preparing))?;
 
 					let transcript =
@@ -440,7 +444,7 @@ fn process_regions(app: &AppHandle, video_path: &Path) -> Result<()> {
 
 	let ((segments, words), splits) = (a?, b?);
 
-	app.emit_all("progress", Progress::Finalising(BasicProgress::Started))?;
+	app.emit_all("progress", Progress::Summarising(BasicProgress::Started))?;
 
 	let mut split_segments = vec![];
 
@@ -510,9 +514,11 @@ fn process_regions(app: &AppHandle, video_path: &Path) -> Result<()> {
 		});
 	}
 
+	for region in &mut split_segments {}
+
 	fs::write(output_path.join("regions.json"), to_string(&split_segments)?)?;
 
-	app.emit_all("progress", Progress::Finalising(BasicProgress::Done))?;
+	app.emit_all("progress", Progress::Summarising(BasicProgress::Done))?;
 
 	drop(SERVER_HANDLE.lock().unwrap().take().inspect(|x| x.abort()));
 
