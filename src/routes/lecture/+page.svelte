@@ -13,12 +13,14 @@
 	const unlisten = { run: () => {} }
 
 	let progress: {
+		downloading: { type: "preparing" } | { type: "progress"; data: [number, number] } | { type: "done" } | null
 		transcoding: "started" | "done" | null
 		transcribing: { type: "preparing" } | { type: "progress"; data: [number, number] } | { type: "done" } | null
 		processing: { type: "preparing" } | { type: "progress"; data: [number, number] } | { type: "done" } | null
 		gatheringPreviews: { type: "preparing" } | { type: "progress"; data: [number, number] } | { type: "done" } | null
 		finalising: "started" | "done" | null
 	} = {
+		downloading: null,
 		transcoding: null,
 		transcribing: null,
 		processing: null,
@@ -237,6 +239,25 @@
 		<h1 class="text-9xl font-extrabold tracking-tight mb-4">Slides</h1>
 		<div class="text-2xl font-semibold tracking-tight mb-2">Preparing lecture</div>
 		<div class="flex flex-col gap-2 xl:w-[40vw]">
+			{#if progress.downloading}
+				<div class="grid grid-cols-3 gap-4 items-center">
+					<span class="font-bold">Downloading model</span>
+					<div class="col-span-2">
+						{#if progress.downloading.type === "preparing"}
+							Preparing
+						{:else if progress.downloading.type === "progress"}
+							<div class="flex gap-4 items-center">
+								<div class="flex-grow"><Progress max={1} value={progress.downloading.data[0]} /></div>
+								<span class="flex-shrink-0 w-32"
+									>{secondsToTime(progress.downloading.data[1]) !== "00:00" ? secondsToTime(progress.downloading.data[1]).replace(/^0([0-9]):/, "$1:") : "-:--"} remaining</span
+								>
+							</div>
+						{:else}
+							Done!
+						{/if}
+					</div>
+				</div>
+			{/if}
 			{#if progress.transcoding}
 				<div class="grid grid-cols-3 gap-4 items-center">
 					<span class="font-bold">Transcoding</span>

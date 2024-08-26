@@ -30,6 +30,7 @@ fn parse_wav_file(path: &Path) -> Vec<i16> {
 
 #[try_fn]
 pub fn transcribe(
+	model_path: &str,
 	wav_path: impl AsRef<Path>,
 	progress_callback: impl FnMut(i32) + 'static
 ) -> Result<(Vec<(String, i64, i64)>, Vec<(String, i64, i64)>)> {
@@ -37,11 +38,8 @@ pub fn transcribe(
 	let mut samples = vec![0.0f32; original_samples.len()];
 	whisper_rs::convert_integer_to_float_audio(&original_samples, &mut samples).context("failed to convert samples")?;
 
-	let ctx = WhisperContext::new_with_params(
-		r"C:\Users\User\Documents\Github\slides\model.bin",
-		WhisperContextParameters::default()
-	)
-	.context("failed to open model")?;
+	let ctx = WhisperContext::new_with_params(model_path, WhisperContextParameters::default())
+		.context("failed to open model")?;
 
 	let mut params = FullParams::new(SamplingStrategy::BeamSearch {
 		beam_size: 5,
