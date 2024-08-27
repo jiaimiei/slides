@@ -18,7 +18,7 @@
 		transcribing: { type: "preparing" } | { type: "progress"; data: [number, number] } | { type: "done" } | null
 		processing: { type: "preparing" } | { type: "progress"; data: [number, number] } | { type: "done" } | null
 		gatheringPreviews: { type: "preparing" } | { type: "progress"; data: [number, number] } | { type: "done" } | null
-		summarising: "started" | "done" | null
+		summarising: { type: "preparing" } | { type: "progress"; data: [number, number] } | { type: "done" } | null
 	} = {
 		downloading: null,
 		transcoding: null,
@@ -45,11 +45,12 @@
 
 	onMount(async () => {
 		const unlisten1 = await listen<
+			| { type: "downloading"; data: { type: "preparing" } | { type: "progress"; data: [number, number] } | { type: "done" } }
 			| { type: "transcoding"; data: "started" | "done" }
 			| { type: "transcribing"; data: { type: "preparing" } | { type: "progress"; data: [number, number] } | { type: "done" } }
 			| { type: "processing"; data: { type: "preparing" } | { type: "progress"; data: [number, number] } | { type: "done" } }
 			| { type: "gatheringPreviews"; data: { type: "preparing" } | { type: "progress"; data: [number, number] } | { type: "done" } }
-			| { type: "summarising"; data: "started" | "done" }
+			| { type: "summarising"; data: { type: "preparing" } | { type: "progress"; data: [number, number] } | { type: "done" } }
 		>("progress", (evt) => {
 			// @ts-expect-error
 			progress[evt.payload.type] = evt.payload.data
@@ -253,7 +254,7 @@
 					</div>
 				</div>
 				<div class="mt-8 text-xl">
-					<h1 class="text-4xl font-extrabold tracking-tight mb-2">Slide Text</h1>
+					<h1 class="text-4xl font-extrabold tracking-tight mb-2">Slide Summary</h1>
 					{data.find((a) => currentTime >= a.start && currentTime < a.end)?.summary}
 				</div>
 			</div>
@@ -352,7 +353,18 @@
 				<div class="grid grid-cols-3 gap-4 items-center">
 					<span class="font-bold">Summarising</span>
 					<div class="col-span-2">
-						{progress.summarising === "started" ? "In progress" : "Done!"}
+						{#if progress.summarising.type === "preparing"}
+							Preparing
+						{:else if progress.summarising.type === "progress"}
+							<div class="flex gap-4 items-center">
+								<div class="flex-grow"><Progress max={1} value={progress.summarising.data[0]} /></div>
+								<span class="flex-shrink-0 w-32"
+									>{secondsToTime(progress.summarising.data[1]) !== "00:00" ? secondsToTime(progress.summarising.data[1]).replace(/^0([0-9]):/, "$1:") : "-:--"} remaining</span
+								>
+							</div>
+						{:else}
+							Done!
+						{/if}
 					</div>
 				</div>
 			{/if}

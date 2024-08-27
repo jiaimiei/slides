@@ -1,10 +1,11 @@
-// Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+// Prevents additional console window on Windows in release, DO NOT REMOVE!!
 
 mod transcode;
 mod whisper;
 
 use std::{
+	env,
 	fs::{self, File},
 	io::Write,
 	path::{Path, PathBuf},
@@ -21,6 +22,10 @@ use fn_error_context::context;
 use futures::StreamExt;
 use image::{ImageBuffer, Rgb};
 use itertools::Itertools;
+use openai_dive::v1::{
+	api::Client,
+	resources::chat::{ChatCompletionParametersBuilder, ChatMessage, ChatMessageContent}
+};
 use rand::{thread_rng, Rng};
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use serde::{Deserialize, Serialize};
@@ -44,6 +49,8 @@ static SERVER_SECRET: LazyLock<String> =
 static SERVER_HANDLE: Mutex<Option<JoinHandle<()>>> = Mutex::new(None);
 
 static MODEL_URL: &str = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.en.bin?download=true";
+
+static SUMMARY_MODEL: &str = "meta-llama/llama-3.1-8b-instruct:free";
 
 static PROMPT_TEMPLATE: &str = r"The following is an excerpt from a lecture transcript:
 
@@ -121,7 +128,7 @@ pub enum Progress {
 	Transcribing(ExtendedProgress),
 	Processing(ExtendedProgress),
 	GatheringPreviews(ExtendedProgress),
-	Summarising(BasicProgress)
+	Summarising(ExtendedProgress)
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug)]
@@ -142,7 +149,7 @@ pub enum ExtendedProgress {
 
 #[tauri::command]
 async fn rs_process_regions(app: AppHandle, video_path: PathBuf) -> Result<(), String> {
-	process_regions(&app, &video_path).map_err(|x| format!("{x:?}"))
+	process_regions(&app, &video_path).await.map_err(|x| format!("{x:?}"))
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
@@ -165,7 +172,7 @@ pub struct Segment {
 
 #[try_fn]
 #[context("Couldn't process regions")]
-fn process_regions(app: &AppHandle, video_path: &Path) -> Result<()> {
+async fn process_regions(app: &AppHandle, video_path: &Path) -> Result<()> {
 	let temp = tempdir().context("Couldn't get temporary folder")?;
 
 	let model_path = app
@@ -444,7 +451,7 @@ fn process_regions(app: &AppHandle, video_path: &Path) -> Result<()> {
 
 	let ((segments, words), splits) = (a?, b?);
 
-	app.emit_all("progress", Progress::Summarising(BasicProgress::Started))?;
+	app.emit_all("progress", Progress::Summarising(ExtendedProgress::Preparing))?;
 
 	let mut split_segments = vec![];
 
@@ -514,11 +521,50 @@ fn process_regions(app: &AppHandle, video_path: &Path) -> Result<()> {
 		});
 	}
 
-	for region in &mut split_segments {}
+	let client = Client::new_with_base(
+		"https://openrouter.ai/api/v1",
+		option_env!("OPENROUTER_API_KEY")
+			.unwrap_or(env::var("OPENROUTER_API_KEY").unwrap().as_ref())
+			.into()
+	);
+
+	let start_time = Instant::now();
+
+	let total_segments = split_segments.len() as f32;
+
+	for (idx, region) in split_segments.iter_mut().enumerate() {
+		let res = client
+			.chat()
+			.create(
+				ChatCompletionParametersBuilder::default()
+					.model(SUMMARY_MODEL)
+					.messages(vec![ChatMessage::User {
+						content: ChatMessageContent::Text(PROMPT_TEMPLATE.replace("##text##", &region.summary)),
+						name: None
+					}])
+					.build()?
+			)
+			.await
+			.context("Couldn't get OpenRouter response")?;
+
+		if let ChatMessage::Assistant { content, .. } = &res.choices[0].message {
+			if let ChatMessageContent::Text(text) = content.as_ref().context("No response content")? {
+				region.summary = text.to_owned();
+			}
+		}
+
+		app.emit_all(
+			"progress",
+			Progress::Summarising(ExtendedProgress::Progress(
+				(idx + 1) as f32 / total_segments,
+				(Instant::now() - start_time).as_secs_f32() / (idx + 1) as f32 * (total_segments - (idx + 1) as f32)
+			))
+		)?;
+	}
 
 	fs::write(output_path.join("regions.json"), to_string(&split_segments)?)?;
 
-	app.emit_all("progress", Progress::Summarising(BasicProgress::Done))?;
+	app.emit_all("progress", Progress::Summarising(ExtendedProgress::Done))?;
 
 	drop(SERVER_HANDLE.lock().unwrap().take().inspect(|x| x.abort()));
 
