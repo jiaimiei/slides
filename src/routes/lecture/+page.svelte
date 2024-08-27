@@ -43,6 +43,8 @@
 
 	let video: HTMLVideoElement
 
+	let error: string | null = null
+
 	onMount(async () => {
 		const unlisten1 = await listen<
 			| { type: "downloading"; data: { type: "preparing" } | { type: "progress"; data: [number, number] } | { type: "done" } }
@@ -66,7 +68,9 @@
 			unlisten2()
 		}
 
-		void invoke("rs_process_regions", { videoPath: session.videoPath })
+		void invoke("rs_process_regions", { videoPath: session.videoPath }).catch((err) => {
+			error = String(err)
+		})
 	})
 
 	onDestroy(() => {
@@ -365,6 +369,14 @@
 						{:else}
 							Done!
 						{/if}
+					</div>
+				</div>
+			{/if}
+			{#if error}
+				<div class="grid grid-cols-3 gap-4 items-center">
+					<span class="font-bold">Error</span>
+					<div class="col-span-2">
+						{error}
 					</div>
 				</div>
 			{/if}
