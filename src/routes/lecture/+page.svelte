@@ -9,6 +9,8 @@
 	import { Badge } from "$lib/components/ui/badge"
 	import scrollIntoView from "scroll-into-view-if-needed"
 	import { platform } from "@tauri-apps/api/os"
+	import DOMPurify from "dompurify"
+	import { marked } from "marked"
 
 	const unlisten = { run: () => {} }
 
@@ -93,6 +95,16 @@
 				scrollIntoView(elem, { scrollMode: "if-needed" })
 			}
 		}
+
+		const currentSlideTime = data.find((a) => currentTime >= a.start && currentTime < a.end)?.start
+
+		if (currentSlideTime) {
+			let elem = document.getElementById(`slide-${secondsToTime(currentSlideTime)}`)
+
+			if (elem) {
+				scrollIntoView(elem, { scrollMode: "if-needed" })
+			}
+		}
 	}
 
 	// Split a list of segments into their tokens.
@@ -165,7 +177,7 @@
 					{#each data.entries() as [idx, { start, end }]}
 						{#await (async () => convertFileSrc(await join(dataPath, `${idx}.png`)))() then src}
 							<!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
-							<div class="relative">
+							<div id="slide-{secondsToTime(start)}" class="relative">
 								<img
 									{src}
 									alt=""
@@ -181,7 +193,7 @@
 				</div>
 			</div>
 
-			<div class="col-span-3 xl:col-span-4">
+			<div class="col-span-3 xl:col-span-4 flex flex-col">
 				<h1 class="text-4xl font-extrabold tracking-tight mb-4">Video</h1>
 				<!-- svelte-ignore a11y-media-has-caption -->
 				<div class="flex gap-4 h-[50vh]">
@@ -201,7 +213,9 @@
 								}
 
 								setInterval(async () => {
-									await invoke("save_current_time", { dataPath, time: video.currentTime })
+									if (video) {
+										await invoke("save_current_time", { dataPath, time: video.currentTime })
+									}
 								}, 2000)
 							}}
 							class="outline-none"
@@ -257,9 +271,17 @@
 						{/if}
 					</div>
 				</div>
-				<div class="mt-8 text-xl">
+				<div class="mt-8 flex-grow flex flex-col">
 					<h1 class="text-4xl font-extrabold tracking-tight mb-2">Slide Summary</h1>
-					{data.find((a) => currentTime >= a.start && currentTime < a.end)?.summary}
+					<div class="flex-grow basis-0 overflow-y-auto pr-2 text-xl typographic">
+						{#if (data.find((a) => currentTime >= a.start && currentTime < a.end)?.summary || "") == ""}
+							<div class="text-muted-foreground">No audio</div>
+						{:else}
+							{#await marked(data.find((a) => currentTime >= a.start && currentTime < a.end)?.summary || "", { gfm: true, silent: true }) then content}
+								{@html DOMPurify.sanitize(content)}
+							{/await}
+						{/if}
+					</div>
 				</div>
 			</div>
 		</div>

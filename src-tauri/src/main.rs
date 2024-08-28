@@ -533,24 +533,32 @@ async fn process_regions(app: &AppHandle, video_path: &Path) -> Result<()> {
 	let total_segments = split_segments.len() as f32;
 
 	for (idx, region) in split_segments.iter_mut().enumerate() {
-		let res = client
-			.chat()
-			.create(
-				ChatCompletionParametersBuilder::default()
-					.model(SUMMARY_MODEL)
-					.messages(vec![ChatMessage::User {
-						content: ChatMessageContent::Text(PROMPT_TEMPLATE.replace("##text##", &region.summary)),
-						name: None
-					}])
-					.build()?
-			)
-			.await
-			.context("Couldn't get OpenRouter response")?;
+		if !region.summary.trim().is_empty() {
+			let res = client
+				.chat()
+				.create(
+					ChatCompletionParametersBuilder::default()
+						.model(SUMMARY_MODEL)
+						.messages(vec![ChatMessage::User {
+							content: ChatMessageContent::Text(PROMPT_TEMPLATE.replace("##text##", &region.summary)),
+							name: None
+						}])
+						.build()?
+				)
+				.await
+				.context("Couldn't get OpenRouter response")?;
 
-		if let ChatMessage::Assistant { content, .. } = &res.choices[0].message {
-			if let ChatMessageContent::Text(text) = content.as_ref().context("No response content")? {
-				region.summary = text.to_owned();
+			if let ChatMessage::Assistant { content, .. } = &res.choices[0].message {
+				if let ChatMessageContent::Text(text) = content.as_ref().context("No response content")? {
+					if text.split("\n\n").next().context("No response content")?.ends_with(":") {
+						region.summary = text.split("\n\n").skip(1).collect_vec().join("\n\n").trim().to_owned();
+					} else {
+						region.summary = text.trim().to_owned();
+					}
+				}
 			}
+		} else {
+			region.summary = region.summary.trim().to_owned();
 		}
 
 		app.emit_all(
