@@ -322,27 +322,19 @@ async fn process_regions(app: &AppHandle, video_path: &Path) -> Result<()> {
 
 				let (width, height) = video.size();
 
+				let frame_rate = video.frame_rate();
+
 				let mut splits = vec![];
 
 				let mut naive_splits = vec![];
 
 				let mut last_frame: Option<Frame> = None;
 
-				let mut skipping = 0;
-
 				let total_secs = video.duration()?.as_secs();
 
 				let start_time = Instant::now();
 
-				'l: while let Ok((time, frame)) = {
-					if skipping > 0 {
-						skipping -= 1;
-						let _ = video.decode_raw();
-						continue 'l;
-					} else {
-						video.decode()
-					}
-				} {
+				while let Ok((time, frame)) = video.decode() {
 					app.emit_all(
 						"progress",
 						Progress::Processing(ExtendedProgress::Progress(
@@ -379,7 +371,10 @@ async fn process_regions(app: &AppHandle, video_path: &Path) -> Result<()> {
 
 							naive_splits.push(time.as_secs());
 						} else {
-							skipping = 15;
+							// Skip one second
+							for _ in 0..(frame_rate) as usize {
+								let _ = video.decode_raw();
+							}
 						}
 					} else {
 						splits.push(time.as_secs());
@@ -396,8 +391,6 @@ async fn process_regions(app: &AppHandle, video_path: &Path) -> Result<()> {
 				app.emit_all("progress", Progress::GatheringPreviews(ExtendedProgress::Preparing))?;
 
 				video.seek_to_start()?;
-
-				let frame_rate = video.frame_rate();
 
 				let middle_frames = splits
 					.iter()
