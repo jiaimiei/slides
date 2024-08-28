@@ -328,21 +328,11 @@ async fn process_regions(app: &AppHandle, video_path: &Path) -> Result<()> {
 
 				let mut last_frame: Option<Frame> = None;
 
-				let mut skipping = 0;
-
 				let total_secs = video.duration()?.as_secs();
 
 				let start_time = Instant::now();
 
-				'l: while let Ok((time, frame)) = {
-					if skipping > 0 {
-						skipping -= 1;
-						let _ = video.decode_raw();
-						continue 'l;
-					} else {
-						video.decode()
-					}
-				} {
+				while let Ok((time, frame)) = video.decode() {
 					app.emit_all(
 						"progress",
 						Progress::Processing(ExtendedProgress::Progress(
@@ -379,7 +369,10 @@ async fn process_regions(app: &AppHandle, video_path: &Path) -> Result<()> {
 
 							naive_splits.push(time.as_secs());
 						} else {
-							skipping = 15;
+							// Skip forward
+							if video.seek(((time.as_secs() + 0.5) * 1000.0).round() as i64).is_err() {
+								break;
+							}
 						}
 					} else {
 						splits.push(time.as_secs());
@@ -397,36 +390,20 @@ async fn process_regions(app: &AppHandle, video_path: &Path) -> Result<()> {
 
 				video.seek_to_start()?;
 
-				let frame_rate = video.frame_rate();
-
-				let middle_frames = splits
+				let middle_frame_times = splits
 					.iter()
 					.tuple_windows()
 					.map(|(start, end)| (start + end) / 2.0)
-					.map(|x| (x * frame_rate).round() as usize)
 					.collect_vec();
 
-				let frames_to_decode = *middle_frames.last().unwrap_or(&0) as f32;
+				let last_time = *middle_frame_times.last().unwrap_or(&0.0);
 
 				let start_time = Instant::now();
 
-				let mut frame = 0;
-				for (idx, middle_frame) in middle_frames.into_iter().enumerate() {
-					while frame != middle_frame {
-						video.decode_raw()?;
-						frame += 1;
+				for (idx, middle_frame_secs) in middle_frame_times.into_iter().enumerate() {
+					let _ = video.seek((middle_frame_secs * 1000.0).round() as i64);
 
-						app.emit_all(
-							"progress",
-							Progress::GatheringPreviews(ExtendedProgress::Progress(
-								frame as f32 / frames_to_decode,
-								(Instant::now() - start_time).as_secs_f32() / frame as f32
-									* (frames_to_decode - frame as f32)
-							))
-						)?;
-					}
-
-					let frame = video.decode()?.1;
+					let (time, frame) = video.decode()?;
 
 					let img: ImageBuffer<Rgb<u8>, Vec<u8>> = ImageBuffer::from_raw(
 						width,
@@ -440,6 +417,14 @@ async fn process_regions(app: &AppHandle, video_path: &Path) -> Result<()> {
 					.unwrap();
 
 					img.save(output_path.join(format!("{}.png", idx)))?;
+
+					app.emit_all(
+						"progress",
+						Progress::GatheringPreviews(ExtendedProgress::Progress(
+							time.as_secs() / last_time,
+							(Instant::now() - start_time).as_secs_f32() / time.as_secs() * (last_time - time.as_secs())
+						))
+					)?;
 				}
 
 				app.emit_all("progress", Progress::GatheringPreviews(ExtendedProgress::Done))?;
