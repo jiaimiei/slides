@@ -41,6 +41,9 @@ use video_rs::Frame;
 use warp::Filter;
 use whisper::transcribe;
 
+#[global_allocator]
+static ALLOC: snmalloc_rs::SnMalloc = snmalloc_rs::SnMalloc;
+
 static WHISPER_PROGRESS_SENDER: Mutex<Option<Sender<i32>>> = Mutex::new(None);
 
 static SERVER_SECRET: LazyLock<String> =

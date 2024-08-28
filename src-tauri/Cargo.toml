@@ -39,6 +39,7 @@ rand = "0.8.5"
 warp = "0.3.7"
 reqwest = { version = "0.12.7", features = ["stream"] }
 openai_dive = "0.6.0"
+snmalloc-rs = { version = "0.3.6", features = ["lto"] }
 
 [features]
 # this feature is used for production builds or when `devPath` points to the filesystem and the built-in dev server is disabled.
@@ -51,6 +52,10 @@ rustflags = ["-C", "target-cpu=native"]
 
 [target.x86_64-apple-darwin]
 rustflags = ["-C", "target-feature=-avx,-avx2"]
+
+[profile.release]
+lto = true
+codegen-units = 1
 
 [profile.dev.package."*"]
 opt-level = 3
