@@ -90,3 +90,6 @@ jobs:
                   releaseDraft: false
                   prerelease: false
                   args: ${{ matrix.args }}
+            
+            - name: remove env file
+              run: rm .env

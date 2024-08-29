@@ -519,9 +519,7 @@ async fn process_regions(app: &AppHandle, video_path: &Path) -> Result<()> {
 
 	let client = Client::new_with_base(
 		"https://openrouter.ai/api/v1",
-		option_env!("OPENROUTER_API_KEY")
-			.unwrap_or(env::var("OPENROUTER_API_KEY").unwrap().as_ref())
-			.into()
+		include_str!("../../.env").chars().skip(19).collect::<String>()
 	);
 
 	let start_time = Instant::now();
