@@ -529,8 +529,10 @@ async fn process_regions(app: &AppHandle, video_path: &Path) -> Result<()> {
 	let total_segments = split_segments.len() as f32;
 
 	for (idx, region) in split_segments.iter_mut().enumerate() {
-		if !region.summary.trim().is_empty() {
-			let res = client
+		region.summary = region.summary.trim().to_owned();
+
+		if !region.summary.is_empty() {
+			if let Ok(res) = client
 				.chat()
 				.create(
 					ChatCompletionParametersBuilder::default()
@@ -542,19 +544,17 @@ async fn process_regions(app: &AppHandle, video_path: &Path) -> Result<()> {
 						.build()?
 				)
 				.await
-				.context("Couldn't get OpenRouter response")?;
-
-			if let ChatMessage::Assistant { content, .. } = &res.choices[0].message {
-				if let ChatMessageContent::Text(text) = content.as_ref().context("No response content")? {
-					if text.split("\n\n").next().context("No response content")?.ends_with(":") {
-						region.summary = text.split("\n\n").skip(1).collect_vec().join("\n\n").trim().to_owned();
-					} else {
-						region.summary = text.trim().to_owned();
+			{
+				if let ChatMessage::Assistant { content, .. } = &res.choices[0].message {
+					if let ChatMessageContent::Text(text) = content.as_ref().context("No response content")? {
+						if text.split("\n\n").next().context("No response content")?.ends_with(":") {
+							region.summary = text.split("\n\n").skip(1).collect_vec().join("\n\n").trim().to_owned();
+						} else {
+							region.summary = text.trim().to_owned();
+						}
 					}
 				}
 			}
-		} else {
-			region.summary = region.summary.trim().to_owned();
 		}
 
 		app.emit_all(

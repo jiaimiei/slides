@@ -186,7 +186,8 @@
 										video.currentTime = start
 									}}
 								/>
-								<Badge class="absolute bottom-6 right-4">{secondsToTime(start)} - {secondsToTime(end)}</Badge>
+								<Badge class="absolute bottom-4 right-4">{secondsToTime(start)} - {secondsToTime(end)}</Badge>
+								<Badge class="absolute bottom-4 left-4">{idx + 1}</Badge>
 							</div>
 						{/await}
 					{/each}
