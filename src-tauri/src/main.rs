@@ -53,7 +53,7 @@ static SERVER_HANDLE: Mutex<Option<JoinHandle<()>>> = Mutex::new(None);
 
 static MODEL_URL: &str = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.en.bin?download=true";
 
-static SUMMARY_MODEL: &str = "meta-llama/llama-3.1-8b-instruct:free";
+static SUMMARY_MODEL: &str = "mistral-large-latest";
 
 static PROMPT_TEMPLATE: &str = r"The following is an excerpt from a lecture transcript:
 
@@ -404,10 +404,16 @@ async fn process_regions(app: &AppHandle, video_path: &Path) -> Result<()> {
 
 				let frames_to_decode = *middle_frames.last().unwrap_or(&0) as f32;
 
+				let video_frames = video.frames()?;
+
 				let start_time = Instant::now();
 
 				let mut frame = 0;
 				for (idx, middle_frame) in middle_frames.into_iter().enumerate() {
+					if middle_frame >= video_frames as usize {
+						break;
+					}
+
 					while frame != middle_frame {
 						video.decode_raw()?;
 						frame += 1;
@@ -511,15 +517,17 @@ async fn process_regions(app: &AppHandle, video_path: &Path) -> Result<()> {
 				.iter()
 				.map(|Segment { text, .. }| text.to_owned())
 				.collect::<Vec<_>>()
-				.join(""),
+				.join(" "),
 			segments: included_segments,
 			words: included_words
 		});
 	}
 
 	let client = Client::new_with_base(
-		"https://openrouter.ai/api/v1",
-		include_str!("../../.env").chars().skip(19).collect::<String>()
+		"https://api.mistral.ai/v1",
+		include_str!("../../.env")
+			.trim_start_matches("MISTRAL_API_KEY=")
+			.to_owned()
 	);
 
 	let start_time = Instant::now();
@@ -552,6 +560,8 @@ async fn process_regions(app: &AppHandle, video_path: &Path) -> Result<()> {
 						}
 					}
 				}
+
+				tokio::time::sleep(std::time::Duration::from_secs(1)).await;
 			}
 		}
 
