@@ -1,3 +1,4 @@
+#![feature(try_blocks)]
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 
@@ -337,6 +338,8 @@ async fn process_regions(app: &AppHandle, video_path: &Path) -> Result<()> {
 
 				let start_time = Instant::now();
 
+				println!("Decoding video");
+
 				while let Ok((time, frame)) = video.decode() {
 					app.emit_all(
 						"progress",
@@ -391,6 +394,8 @@ async fn process_regions(app: &AppHandle, video_path: &Path) -> Result<()> {
 
 				app.emit_all("progress", Progress::Processing(ExtendedProgress::Done))?;
 
+				println!("Splits: {:?}", splits);
+
 				app.emit_all("progress", Progress::GatheringPreviews(ExtendedProgress::Preparing))?;
 
 				video.seek_to_start()?;
@@ -404,44 +409,46 @@ async fn process_regions(app: &AppHandle, video_path: &Path) -> Result<()> {
 
 				let frames_to_decode = *middle_frames.last().unwrap_or(&0) as f32;
 
-				let video_frames = video.frames()?;
-
 				let start_time = Instant::now();
+
+				println!("Middle frames: {:?}", middle_frames);
 
 				let mut frame = 0;
 				for (idx, middle_frame) in middle_frames.into_iter().enumerate() {
-					if middle_frame >= video_frames as usize {
-						break;
+					let x: Result<_> = try {
+						while frame != middle_frame {
+							video.decode_raw()?;
+							frame += 1;
+
+							app.emit_all(
+								"progress",
+								Progress::GatheringPreviews(ExtendedProgress::Progress(
+									frame as f32 / frames_to_decode,
+									(Instant::now() - start_time).as_secs_f32() / frame as f32
+										* (frames_to_decode - frame as f32)
+								))
+							)?;
+						}
+
+						let frame = video.decode()?.1;
+
+						let img: ImageBuffer<Rgb<u8>, Vec<u8>> = ImageBuffer::from_raw(
+							width,
+							height,
+							frame
+								.slice(ndarray::s![.., .., 0..3])
+								.to_slice()
+								.context("Couldn't slice frame as image")?
+								.to_vec()
+						)
+						.unwrap();
+
+						img.save(output_path.join(format!("{}.png", idx)))?;
+					};
+
+					if let Err(e) = x {
+						eprintln!("Error in saving preview image {idx}: {e}");
 					}
-
-					while frame != middle_frame {
-						video.decode_raw()?;
-						frame += 1;
-
-						app.emit_all(
-							"progress",
-							Progress::GatheringPreviews(ExtendedProgress::Progress(
-								frame as f32 / frames_to_decode,
-								(Instant::now() - start_time).as_secs_f32() / frame as f32
-									* (frames_to_decode - frame as f32)
-							))
-						)?;
-					}
-
-					let frame = video.decode()?.1;
-
-					let img: ImageBuffer<Rgb<u8>, Vec<u8>> = ImageBuffer::from_raw(
-						width,
-						height,
-						frame
-							.slice(ndarray::s![.., .., 0..3])
-							.to_slice()
-							.context("Couldn't slice frame as image")?
-							.to_vec()
-					)
-					.unwrap();
-
-					img.save(output_path.join(format!("{}.png", idx)))?;
 				}
 
 				app.emit_all("progress", Progress::GatheringPreviews(ExtendedProgress::Done))?;
