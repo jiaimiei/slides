@@ -8,6 +8,11 @@ repository = ""
 default-run = "app"
 edition = "2021"
 
+[package.metadata.vcpkg]
+git = "https://github.com/microsoft/vcpkg"
+rev = "6f29f12"
+dependencies = ["ffmpeg"]
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [build-dependencies]
@@ -18,28 +23,25 @@ serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 tauri = { version = "1.7.0", features = ["api-all", "linux-protocol-headers"] }
 futures = "0.3.30"
-video-rs = { version = "0.8.1", features = ["ndarray"] }
-ffmpeg-next = { version = "7.0.4", features = ["static"] }
+video-rs = { version = "0.10.3", features = ["ndarray"] }
+ffmpeg-next = { version = "7.1.0" }
 anyhow = "1.0.86"
 tryvial = "0.2.0"
 fn-error-context = "0.2.1"
-whisper-rs = { git = "https://github.com/thewh1teagle/whisper-rs", branch = "feat/vulkan", features = [
-    "vulkan",
-] }
 hound = "3.5.1"
 itertools = "0.13.0"
 num_cpus = "1.16.0"
-ndarray = "0.15.6"
+ndarray = "0.16.1"
 delta_e = "0.2.1"
 rayon = "1.7.0"
-image = "0.24.4"
+image = "0.25.5"
 tempfile = "3.6.0"
 blake3 = { version = "1.5.4", features = ["rayon"] }
 rand = "0.8.5"
 warp = "0.3.7"
 reqwest = { version = "0.12.7", features = ["stream"] }
 openai_dive = "0.6.0"
-snmalloc-rs = { version = "0.3.6", features = ["lto"] }
+snmalloc-rs = { version = "0.3.8", features = ["lto"] }
 tokio = "1.41.0"
 
 [features]
@@ -54,8 +56,27 @@ rustflags = ["-C", "target-cpu=native"]
 [target.x86_64-apple-darwin]
 rustflags = ["-C", "target-feature=-avx,-avx2"]
 
+[target.aarch64-apple-darwin]
+rustflags = "-lc++ -l framework=Accelerate"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+whisper-rs = { git = "https://github.com/tazz4843/whisper-rs", rev = "03351b5f9c315e8495df2c75113edc91f274eb1c", features = [
+    "vulkan",
+] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+whisper-rs = { git = "https://github.com/tazz4843/whisper-rs", rev = "03351b5f9c315e8495df2c75113edc91f274eb1c", features = [
+    "vulkan",
+] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+whisper-rs = { git = "https://github.com/tazz4843/whisper-rs", rev = "03351b5f9c315e8495df2c75113edc91f274eb1c", features = [
+    "metal",
+] }
+
 [profile.release]
-lto = true
+# Disabled to avoid issues on macOS builds
+# lto = true
 codegen-units = 1
 
 [profile.dev.package."*"]
