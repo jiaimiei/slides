@@ -11,6 +11,7 @@
 	import { platform } from "@tauri-apps/api/os"
 	import DOMPurify from "dompurify"
 	import { marked } from "marked"
+	import { rsSaveCurrentTime } from "$lib/bindings"
 
 	const unlisten = { run: () => {} }
 
@@ -215,7 +216,7 @@
 
 								setInterval(async () => {
 									if (video) {
-										await invoke("save_current_time", { dataPath, time: video.currentTime })
+										await rsSaveCurrentTime(dataPath, video.currentTime)
 									}
 								}, 2000)
 							}}
@@ -294,7 +295,7 @@
 		<div class="flex flex-col gap-2 xl:w-[40vw]">
 			{#if progress.downloading}
 				<div class="grid grid-cols-3 gap-4 items-center">
-					<span class="font-bold">Downloading model</span>
+					<span class="font-bold">Downloading transcription model</span>
 					<div class="col-span-2">
 						{#if progress.downloading.type === "preparing"}
 							Preparing
@@ -340,7 +341,7 @@
 			{/if}
 			{#if progress.processing}
 				<div class="grid grid-cols-3 gap-4 items-center">
-					<span class="font-bold">Extracting slides</span>
+					<span class="font-bold">Identifying slides</span>
 					<div class="col-span-2">
 						{#if progress.processing.type === "preparing"}
 							Preparing
