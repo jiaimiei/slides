@@ -3,7 +3,7 @@ use std::{
 	io::Write,
 	path::PathBuf,
 	sync::{LazyLock, Mutex},
-	time::Instant
+	time::{Duration, Instant}
 };
 
 use crate::{transcode::transcode, AppSettings, BasicProgress, ExtendedProgress, Progress};
@@ -22,7 +22,10 @@ use openai_dive::v1::{
 	resources::chat::{ChatCompletionParametersBuilder, ChatMessage, ChatMessageContent}
 };
 use rand::{thread_rng, Rng};
-use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
+use rayon::{
+	iter::{IndexedParallelIterator, ParallelIterator},
+	slice::ParallelSlice
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{from_slice, from_value, to_string, Value};
 use tauri::{
@@ -40,15 +43,16 @@ static SERVER_SECRET: LazyLock<String> =
 static SERVER_HANDLE: Mutex<Option<JoinHandle<()>>> = Mutex::new(None);
 
 static MODEL_URL: &str = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.en.bin?download=true";
+static MODEL_HASH: &str = "43806203079b34211f185a19116492944db21f9ee14aa0f3c5d6cfe7e81a7861";
 
 // Average similarity of colours based on Oklab
-fn similarity(x: &[(u8, u8, u8)], y: &[(u8, u8, u8)]) -> f64 {
+fn similarity(x: &[u8], y: &[u8]) -> f32 {
 	(100.0
-		- (x.par_iter()
-			.zip(y)
-			.map(|((r1, g1, b1), (r2, g2, b2))| DE2000::from_rgb(&[*r1, *g1, *b1], &[*r2, *g2, *b2]))
-			.sum::<f32>() as f64
-			/ x.len() as f64))
+		- (x.par_chunks_exact(3)
+			.zip(y.par_chunks_exact(3))
+			.map(|(one, two)| DE2000::from_rgb(one.try_into().unwrap(), two.try_into().unwrap()))
+			.sum::<f32>()
+			/ x.len() as f32))
 		/ 100.0
 }
 
@@ -151,7 +155,12 @@ async fn process_regions(app: &AppHandle, video_path: &PathBuf) -> Result<()> {
 					transcode(video_path, temp.path().join("audio.wav")).context("Couldn't transcode video to WAV")?;
 					app.emit_all("progress", Progress::Transcoding(BasicProgress::Done))?;
 
-					if !model_path.exists() {
+					if !model_path.exists()
+						|| blake3::Hasher::new()
+							.update_rayon(&fs::read(&model_path).context("Couldn't read video")?)
+							.finalize()
+							.to_string() != MODEL_HASH
+					{
 						app.emit_all("progress", Progress::Downloading(ExtendedProgress::Preparing))?;
 
 						async_runtime::block_on(async {
@@ -234,38 +243,24 @@ async fn process_regions(app: &AppHandle, video_path: &PathBuf) -> Result<()> {
 				let total_secs = video.duration()?.as_secs();
 
 				let start_time = Instant::now();
-
-				println!("Decoding video");
+				let mut last_report = Instant::now();
 
 				while let Ok((time, frame)) = video.decode() {
-					app.emit_all(
-						"progress",
-						Progress::Processing(ExtendedProgress::Progress(
-							time.as_secs() / total_secs,
-							(Instant::now() - start_time).as_secs_f32() / time.as_secs()
-								* (total_secs - time.as_secs())
-						))
-					)?;
+					if Instant::now() - last_report > Duration::from_millis(100) {
+						last_report = Instant::now();
+
+						app.emit_all(
+							"progress",
+							Progress::Processing(ExtendedProgress::Progress(
+								time.as_secs() / total_secs,
+								(Instant::now() - start_time).as_secs_f32() / time.as_secs()
+									* (total_secs - time.as_secs())
+							))
+						)?;
+					}
 
 					if let Some(last_frame) = last_frame {
-						let sim = similarity(
-							&last_frame
-								.slice(ndarray::s![.., .., 0..3])
-								.to_slice()
-								.unwrap()
-								.iter()
-								.copied()
-								.tuples()
-								.collect_vec(),
-							&frame
-								.slice(ndarray::s![.., .., 0..3])
-								.to_slice()
-								.unwrap()
-								.iter()
-								.copied()
-								.tuples()
-								.collect_vec()
-						);
+						let sim = similarity(last_frame.as_slice().unwrap(), frame.as_slice().unwrap());
 
 						if sim < 0.99 {
 							if time.as_secs() - naive_splits.last().unwrap() > 2.0 {
@@ -291,8 +286,6 @@ async fn process_regions(app: &AppHandle, video_path: &PathBuf) -> Result<()> {
 
 				app.emit_all("progress", Progress::Processing(ExtendedProgress::Done))?;
 
-				println!("Splits: {:?}", splits);
-
 				app.emit_all("progress", Progress::GatheringPreviews(ExtendedProgress::Preparing))?;
 
 				video.seek_to_start()?;
@@ -307,8 +300,6 @@ async fn process_regions(app: &AppHandle, video_path: &PathBuf) -> Result<()> {
 				let frames_to_decode = *middle_frames.last().unwrap_or(&0) as f32;
 
 				let start_time = Instant::now();
-
-				println!("Middle frames: {:?}", middle_frames);
 
 				let mut frame = 0;
 				for (idx, middle_frame) in middle_frames.into_iter().enumerate() {

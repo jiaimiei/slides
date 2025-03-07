@@ -79,12 +79,17 @@ jobs:
             - name: Install frontend dependencies
               run: yarn install
 
-            - name: Create env file
-              run: echo "MISTRAL_API_KEY=${{ secrets.MISTRAL_API_KEY }}" > .env
+            - name: Write private key
+              uses: DamianReeves/write-file-action@6929a9a6d1807689191dcc8bbe62b54d70a32b42
+              with:
+                  path: "src-tauri/slides.key"
+                  contents: ${{ secrets.PRIVATE_KEY }}
 
             - uses: tauri-apps/tauri-action@v0
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  TAURI_PRIVATE_KEY: slides.key
+                  TAURI_KEY_PASSWORD: ${{ secrets.PRIVATE_KEY_PASSWORD }}
               with:
                   tagName: v__VERSION__
                   releaseName: "v__VERSION__"
@@ -93,5 +98,5 @@ jobs:
                   prerelease: false
                   args: ${{ matrix.args }}
 
-            - name: Remove env file
-              run: rm .env
+            - name: Remove key file
+              run: rm src-tauri/slides.key

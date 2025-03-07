@@ -293,6 +293,14 @@
 		<h1 class="text-9xl font-extrabold tracking-tight mb-4">Slides</h1>
 		<div class="text-2xl font-semibold tracking-tight mb-2">Preparing lecture</div>
 		<div class="flex flex-col gap-2 xl:w-[40vw]">
+			{#if progress.transcoding}
+				<div class="grid grid-cols-3 gap-4 items-center">
+					<span class="font-bold">Transcoding</span>
+					<div class="col-span-2">
+						{progress.transcoding === "started" ? "In progress" : "Done!"}
+					</div>
+				</div>
+			{/if}
 			{#if progress.downloading}
 				<div class="grid grid-cols-3 gap-4 items-center">
 					<span class="font-bold">Downloading transcription model</span>
@@ -309,14 +317,6 @@
 						{:else}
 							Done!
 						{/if}
-					</div>
-				</div>
-			{/if}
-			{#if progress.transcoding}
-				<div class="grid grid-cols-3 gap-4 items-center">
-					<span class="font-bold">Transcoding</span>
-					<div class="col-span-2">
-						{progress.transcoding === "started" ? "In progress" : "Done!"}
 					</div>
 				</div>
 			{/if}

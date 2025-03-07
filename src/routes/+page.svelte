@@ -14,6 +14,7 @@
 	import Download from "lucide-svelte/icons/download"
 
 	let updateManifest: UpdateManifest | undefined = undefined
+	let installingUpdate = false
 
 	onMount(() => {
 		;(async () => {
@@ -55,7 +56,9 @@
 				<Button
 					class="mt-4"
 					size="sm"
+					disabled={installingUpdate}
 					on:click={async () => {
+						installingUpdate = true
 						await installUpdate()
 						await relaunch()
 					}}><Download class="mr-2 h-4 w-4" /> Install</Button
