@@ -1,9 +1,9 @@
 name: Release
 
 on:
-  push:
-    branches:
-      - main
+    push:
+        branches:
+            - main
 
 jobs:
     publish-tauri:
@@ -61,6 +61,13 @@ jobs:
                   token: ${{ github.token }}
                   github-binarycache: true
 
+            - name: Install Vulkan SDK (Windows only)
+              if: matrix.platform == 'windows-latest'
+              uses: humbletim/install-vulkan-sdk@c2aa128094d42ba02959a660f03e0a4e012192f9
+              with:
+                  version: 1.3.290.0
+                  cache: true
+
             - name: vcpkg integrate
               if: matrix.platform == 'windows-latest'
               run: |
@@ -85,6 +92,6 @@ jobs:
                   releaseDraft: false
                   prerelease: false
                   args: ${{ matrix.args }}
-            
+
             - name: Remove env file
               run: rm .env
