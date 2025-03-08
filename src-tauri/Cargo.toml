@@ -24,7 +24,6 @@ serde = { version = "1.0", features = ["derive"] }
 tauri = { version = "1.7.0", features = ["api-all", "linux-protocol-headers"] }
 futures = "0.3.30"
 video-rs = { version = "0.10.3", features = ["ndarray"] }
-ffmpeg-next = { version = "7.1.0" }
 anyhow = "1.0.86"
 tryvial = "0.2.0"
 fn-error-context = "0.2.1"
@@ -67,16 +66,19 @@ rustflags = "-lc++ -l framework=Accelerate"
 whisper-rs = { git = "https://github.com/tazz4843/whisper-rs", rev = "03351b5f9c315e8495df2c75113edc91f274eb1c", features = [
     "vulkan",
 ] }
+ffmpeg-next = { version = "7.1.0", features = ["static"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 whisper-rs = { git = "https://github.com/tazz4843/whisper-rs", rev = "03351b5f9c315e8495df2c75113edc91f274eb1c", features = [
     "vulkan",
 ] }
+ffmpeg-next = { version = "7.1.0" }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 whisper-rs = { git = "https://github.com/tazz4843/whisper-rs", rev = "03351b5f9c315e8495df2c75113edc91f274eb1c", features = [
     "metal",
 ] }
+ffmpeg-next = { version = "7.1.0" }
 
 [profile.release]
 # Disabled to avoid issues on macOS builds
