@@ -10,8 +10,8 @@ mod whisper;
 use std::{
 	fs,
 	sync::{
-		mpsc::{channel, Sender},
-		Arc, Mutex
+		Arc, Mutex,
+		mpsc::{Sender, channel}
 	},
 	time::Instant
 };
@@ -20,11 +20,10 @@ use arc_swap::ArcSwap;
 use serde::{Deserialize, Serialize};
 use serde_json::{from_slice, to_string};
 use specta::{
-	collect_types,
-	ts::{BigIntExportBehavior, ExportConfiguration},
-	Type
+	Type, collect_types,
+	ts::{BigIntExportBehavior, ExportConfiguration}
 };
-use tauri::{async_runtime, Manager};
+use tauri::{Manager, async_runtime};
 use tauri_specta::ts;
 
 use crate::{
@@ -94,6 +93,8 @@ fn main() {
 			)
 			.is_err()
 			{
+				fs::create_dir_all(app.path_resolver().app_data_dir().unwrap()).unwrap();
+
 				fs::write(
 					app.path_resolver().app_data_dir().unwrap().join("settings.json"),
 					to_string(&AppSettings {

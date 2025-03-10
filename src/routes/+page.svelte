@@ -49,7 +49,7 @@
 	{#if updateManifest}
 		<Alert.Root class="mt-4">
 			<CloudDownload class="h-4 w-4" />
-			<Alert.Title>Update available to v{updateManifest.version} (current: {#await getVersion() then x}{x}{/await})</Alert.Title>
+			<Alert.Title>Update available to v{updateManifest.version} (current: v{#await getVersion() then x}{x}{/await})</Alert.Title>
 			<Alert.Description>
 				<div>
 					A changelog is available <Button class="p-0 h-0" variant="link" on:click={() => shellOpen("https://github.com/jiaimiei/slides/releases")}>here</Button>.
